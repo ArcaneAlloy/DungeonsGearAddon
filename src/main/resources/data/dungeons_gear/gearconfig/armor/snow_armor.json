@@ -1,0 +1,12 @@
+{
+  "attributes": [],
+  "built_in_enchantments": [
+    {
+      "enchantment": "dungeons_gear:rush",
+      "level": 1
+    }
+  ],
+  "material": "dungeons_gear:heavy_plate",
+  "unique": false,
+  "rarity": "UNCOMMON"
+}

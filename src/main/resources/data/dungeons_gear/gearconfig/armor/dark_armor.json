@@ -1,0 +1,18 @@
+{
+  "attributes": [
+    {
+      "attribute": "dungeons_libraries:soul_gathering",
+      "amount": 0.125,
+      "operation": 1
+    }
+  ],
+  "built_in_enchantments": [
+    {
+      "enchantment": "dungeons_gear:soul_focus",
+      "level": 1
+    }
+  ],
+  "material": "dungeons_gear:heavy_plate",
+  "unique": false,
+  "rarity": "UNCOMMON"
+}
