@@ -1,8 +1,18 @@
+buildscript {
+    repositories {
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    }
+    dependencies {
+        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
+    }
+}
+
 plugins {
     id 'eclipse'
     id 'idea'
     id 'net.minecraftforge.gradle' version '[5.1,5.2)'
 }
+apply plugin: 'org.spongepowered.mixin'
 
 version = mod_version
 group = mod_group_id
@@ -21,9 +31,13 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
-            // Cross-mod mixins here don't rely on obfuscated names, so we skip
-            // refmap remapping entirely instead of wiring up an AP refmap.
-            property 'mixin.env.disableRefMap', 'true'
+            // Dev-only: the game runs deobfuscated here, so Mixin needs to
+            // re-translate the refmap (official -> SRG) back through this
+            // SRG-to-MCP table to find the real target. Production doesn't
+            // need this — there, classes are already SRG-named and the
+            // refmap is used directly.
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
             mods {
                 ej_fixes {
                     source sourceSets.main
@@ -34,7 +48,8 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
-            property 'mixin.env.disableRefMap', 'true'
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
             mods {
                 ej_fixes {
                     source sourceSets.main
@@ -42,6 +57,14 @@ minecraft {
             }
         }
     }
+}
+
+// MixinGradle: generates ej_fixes.refmap.json during compilation (mapping
+// the friendly/official names we write in @Mixin targets to the real SRG
+// names Mixin encounters at the point it applies, since Mixin operates on
+// vanilla classes before Forge renames them) and bundles it into the jar.
+mixin {
+    add sourceSets.main, "ej_fixes.refmap.json"
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
@@ -67,6 +90,7 @@ processResources {
 
 repositories {
     mavenCentral()
+    maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
 }
 
 dependencies {

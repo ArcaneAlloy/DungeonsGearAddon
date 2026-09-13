@@ -18,8 +18,10 @@ Mixins so they don't require patching or shading any other mod's jar.
   encontrar la clase objetivo en el classpath de compilación para validar
   que el método existe, incluso usando `targets = "..."` por string — el
   string solo evita el `import` en tu código, no la necesidad de que el AP
-  vea los bytes de la clase. Para el fix actual hace falta
-  `dungeons_libraries-1.19.2-x.x.x.jar`.
+  vea los bytes de la clase. Para los fixes actuales hace falta
+  `dungeons_libraries-1.19.2-x.x.x.jar` y, como dependencia transitiva de
+  `ArmorGear` (que extiende `GeoArmorItem`), también
+  `geckolib-forge-1.19.2-x.x.x.jar`.
 
 ## Estructura
 
@@ -35,7 +37,13 @@ src/main/java/com/endersjourney/ejfixes/
 src/main/resources/
 ├── META-INF/mods.toml               ← metadatos del mod + dependencias
 ├── ej_fixes.mixins.json             ← registro de mixins
-└── pack.mcmeta
+├── pack.mcmeta
+└── data/dungeons_gear/gearconfig/armor/*.json
+                                      ← overrides de datapack para dungeons_gear
+                                        (Forge fusiona el data/ del jar de cada
+                                        mod; ordering="AFTER" en mods.toml
+                                        garantiza que estos ganan sobre los
+                                        del propio dungeons_gear.jar)
 ```
 
 ## Compilar
@@ -68,6 +76,46 @@ Es un cambio cosmético/de consistencia: `EnchantmentHelper.getEnchantmentLevel`
 ya toma el nivel MÁXIMO entre todas las piezas equipadas (no los suma), así
 que duplicar el mismo encantamiento en varias piezas no cambia su potencia
 ni permite acumularlo.
+
+## Fix #2 — Bonus de set completo (nivel 1 → 2) + compatibilidad con Don't Break My Items
+
+**Objetivo:** si el jugador lleva las 4 piezas del mismo set de Dungeons
+Gear, el/los encantamiento(s) innato(s) de ese set suben de nivel 1 a nivel
+2 mientras lo lleve puesto — sin tocar ningún JSON — y respetando el estado
+"roto" que introduce el mod Don't Break My Items.
+
+**Cómo:** todos los encantamientos "aura" de Dungeons Gear (Melee Aura,
+Life Steal Aura, Potion Aura, etc.) consultan su propio nivel cada tick
+llamando al método vanilla `EnchantmentHelper.getEnchantmentLevel(Enchantment,
+LivingEntity)`. `FullSetBonusMixin` engancha ese único método y, para
+encantamientos del namespace `dungeons_gear`, **recalcula el nivel desde
+cero** en vez de solo ajustar el resultado de vanilla:
+
+1. Recorre las 4 piezas de armadura equipadas.
+2. Para cada pieza, consulta su nivel propio vía la cápsula pública
+   `BuiltInEnchantmentsHelper` / `BuiltInEnchantments` de Dungeons
+   Libraries — la misma que usa el propio mod internamente.
+3. Si Don't Break My Items considera la pieza rota
+   (`BrokenItemsEvents.isItemBroken(stack)`), esa pieza no aporta nada a su
+   propio nivel base (antes seguía aplicándose aunque estuviera rota, ya
+   que la cápsula de encantamientos innatos vive fuera del sistema NBT de
+   encantamientos que Don't Break My Items anula).
+4. Si las 4 piezas son del mismo set (mismo `armorSet`) **y ninguna está
+   rota**, suma +1 al nivel base (antes, una sola pieza rota no impedía el
+   bonus mientras las otras 3 siguieran puestas).
+5. Aplica el tope del nivel máximo del propio encantamiento
+   (`getMaxLevel()`, ya es 2 en casi todos estos casos).
+
+Al enganchar el método de nivel en vez de cada clase de encantamiento, esto
+aplica automáticamente a cualquier encantamiento innato actual o futuro de
+`dungeons_gear`, incluidos los que añadamos nosotros mismos vía datapack.
+
+**Nota:** el tooltip de cada pieza (p. ej. "Life Steal Aura I") sigue
+mostrando el nivel estático guardado en el NBT del objeto — no se actualiza
+para reflejar el bonus de set ni el estado roto. Es un detalle puramente
+visual; el efecto real ya usa el nivel correcto. Si en algún momento se
+quiere corregir también el texto, hace falta un Mixin aparte en el
+renderizado de tooltips (lado cliente), no cubierto aquí.
 
 ## Añadir un fix nuevo
 

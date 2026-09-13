@@ -32,3 +32,22 @@ description='''${mod_description}'''
     versionRange="[1.19,)"
     ordering="AFTER"
     side="BOTH"
+
+# ej_fixes also ships data/dungeons_gear/gearconfig/armor/*.json overrides —
+# ordering=AFTER makes sure those load after (and win over) dungeons_gear's
+# own versions of the same files.
+[[dependencies.${mod_id}]]
+    modId="dungeons_gear"
+    mandatory=true
+    versionRange="[1.19,)"
+    ordering="AFTER"
+    side="BOTH"
+
+# FullSetBonusMixin calls BrokenItemsEvents.isItemBroken(ItemStack) from
+# Don't Break My Items directly, so it must be present and loaded first.
+[[dependencies.${mod_id}]]
+    modId="brokenitems"
+    mandatory=true
+    versionRange="[1.0,)"
+    ordering="AFTER"
+    side="BOTH"

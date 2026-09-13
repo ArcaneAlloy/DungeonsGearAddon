@@ -45,7 +45,8 @@ public class BuiltInEnchantmentsMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Ljava/util/stream/Stream;filter(Ljava/util/function/Predicate;)Ljava/util/stream/Stream;"
-            )
+            ),
+            remap = false
     )
     private Stream<EnchantmentInstance> ejFixes$showBuiltInEnchantsOnAllArmorPieces(
             Stream<EnchantmentInstance> stream, Predicate<EnchantmentInstance> unusedCanEnchantFilter) {
