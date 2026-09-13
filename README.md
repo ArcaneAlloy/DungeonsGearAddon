@@ -117,7 +117,35 @@ visual; el efecto real ya usa el nivel correcto. Si en algún momento se
 quiere corregir también el texto, hace falta un Mixin aparte en el
 renderizado de tooltips (lado cliente), no cubierto aquí.
 
-## Añadir un fix nuevo
+## Fix #3 — Escalado de encantamientos en las recetas de upgrade (`bte_mobs`)
+
+**Problema:** el mod `bte_mobs` (Beyond The End Mobs) define recetas de
+herrero (`bte_mobs:blacksmith_upgrade`) que convierten un set de armadura de
+Dungeons Gear en otro de rareza superior — p. ej. Spelunker (UNCOMMON) →
+Cave Crawler (RARE, unique). En 5 de las 6 cadenas de upgrade de armadura
+que existen, el encantamiento innato heredado se quedaba en el mismo nivel
+tras el upgrade (o, en el peor caso, desaparecía del todo), en vez de subir
+de nivel como cabría esperar de una mejora de equipo.
+
+**Fix:** overrides de datapack en `data/dungeons_gear/gearconfig/armor/`,
+igual que el resto de sets — no fue necesario tocar código, solo subir el
+nivel del encantamiento compartido:
+
+| Upgrade | Antes | Después |
+|---|---|---|
+| Spelunker → Cave Crawler | melee_aura I → melee_aura I | melee_aura I → **melee_aura II** |
+| Grim → Wither | life_steal_aura I → life_steal_aura I | life_steal_aura I → **life_steal_aura II** |
+| Emerald → Gilded Glory | lucky_explorer I → lucky_explorer I + death_barter I | lucky_explorer I → **lucky_explorer II** + death_barter I |
+| Emerald → Opulent | lucky_explorer I → lucky_explorer I + opulent_shield I | lucky_explorer I → **lucky_explorer II** + opulent_shield I |
+| Climbing → Rugged Climbing | melee_aura I → *(ninguno)* | melee_aura I → **melee_aura II** + explorer I *(del Fix de sets sin encantar)* |
+
+Scale Mail → Reinforced Mail se dejó tal cual (pasa de 0 a 1 encantamiento,
+que es progresión normal, no una regresión de nivel).
+
+Todos los niveles resultantes están dentro del `getMaxLevel()` real de cada
+encantamiento (melee_aura y life_steal_aura tope en II, lucky_explorer tope
+en III), así que ninguno queda inflado por encima de lo que el propio juego
+permite.
 
 1. Crea la clase Mixin en `src/main/java/com/endersjourney/ejfixes/mixin/`.
 2. Añade su nombre de clase al array `"mixins"` (o `"client"`/`"server"` si
