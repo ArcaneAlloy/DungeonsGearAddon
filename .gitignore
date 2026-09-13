@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# Forge run dirs
+run/
+runs/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+bin/
+eclipse/
+.classpath
+.project
+.settings/
+
+# Local-only compile-time jars (see libs/README.txt)
+libs/*.jar

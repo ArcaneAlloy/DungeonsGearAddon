@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.endersjourney.ejfixes.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "ej_fixes.refmap.json",
+  "mixins": [
+    "BuiltInEnchantmentsMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
