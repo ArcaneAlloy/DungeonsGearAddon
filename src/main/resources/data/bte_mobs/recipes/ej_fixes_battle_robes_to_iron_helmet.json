@@ -1,0 +1,18 @@
+{
+  "type": "bte_mobs:blacksmith_upgrade",
+  "category": "ARMORS",
+  "tier": 2,
+  "base": {
+    "item": "dungeons_gear:battle_robes_helmet"
+  },
+  "ingredients": [
+    {
+      "type": "bte_mobs:item",
+      "item": "minecraft:iron_ingot",
+      "count": 4
+    }
+  ],
+  "result": {
+    "item": "minecraft:iron_helmet"
+  }
+}

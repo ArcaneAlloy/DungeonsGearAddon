@@ -28,22 +28,34 @@ Mixins so they don't require patching or shading any other mod's jar.
 ```
 src/main/java/com/endersjourney/ejfixes/
 ├── EJFixes.java                     ← clase principal del mod (@Mod)
+├── MigratedGearTag.java             ← utilidad: rastrea el set de origen y
+│                                        los encantamientos innatos de una
+│                                        pieza migrada (ver fix #6)
+├── BuiltInEnchantmentTooltipFix.java ← fix #5: tooltip muestra el nivel real
+│                                        con el set completo puesto
 └── mixin/
-    └── BuiltInEnchantmentsMixin.java ← fix #1: encantamientos innatos en
-                                         todas las piezas de un set, no solo
-                                         en la pieza cuyo slot coincide con
-                                         la EnchantmentCategory del encantamiento
+    ├── BuiltInEnchantmentsMixin.java ← fix #1: encantamientos innatos en
+    │                                    todas las piezas de un set, no solo
+    │                                    en la pieza cuyo slot coincide con
+    │                                    la EnchantmentCategory del encantamiento
+    ├── FullSetBonusMixin.java        ← fix #2: bonus de set completo (nivel
+    │                                    1 → 2) + compatibilidad con Don't
+    │                                    Break My Items
+    └── BlacksmithUpgradeEnchantMigrationMixin.java
+                                       ← fix #4: migra encantamientos innatos
+                                         a items fuera de Dungeons Gear
 
 src/main/resources/
 ├── META-INF/mods.toml               ← metadatos del mod + dependencias
 ├── ej_fixes.mixins.json             ← registro de mixins
 ├── pack.mcmeta
-└── data/dungeons_gear/gearconfig/armor/*.json
-                                      ← overrides de datapack para dungeons_gear
-                                        (Forge fusiona el data/ del jar de cada
-                                        mod; ordering="AFTER" en mods.toml
-                                        garantiza que estos ganan sobre los
-                                        del propio dungeons_gear.jar)
+├── data/dungeons_gear/gearconfig/armor/*.json
+│                                     ← overrides de datapack para dungeons_gear
+│                                       (Forge fusiona el data/ del jar de cada
+│                                       mod; ordering="AFTER" en mods.toml
+│                                       garantiza que estos ganan sobre los
+│                                       del propio dungeons_gear.jar)
+└── data/bte_mobs/recipes/*.json     ← recetas de upgrade nuevas (fix #3 y #4)
 ```
 
 ## Compilar
@@ -146,6 +158,96 @@ Todos los niveles resultantes están dentro del `getMaxLevel()` real de cada
 encantamiento (melee_aura y life_steal_aura tope en II, lucky_explorer tope
 en III), así que ninguno queda inflado por encima de lo que el propio juego
 permite.
+
+## Fix #4 — Migrar encantamientos innatos a items fuera de Dungeons Gear (`bte_mobs`)
+
+**Objetivo:** poder crear recetas de herrero que suban de tier una pieza de
+Dungeons Gear a un item de OTRO mod o vanilla (p. ej.
+`dungeons_gear:battle_robes_helmet` con Reckless I → `minecraft:iron_helmet`,
+o a `twilightforest:ironwood_helmet`), conservando el encantamiento innato.
+
+**Problema:** los encantamientos innatos de Dungeons Gear viven en una
+cápsula (capability) aparte, no en el NBT real de encantamientos del item.
+`BlacksmithUpgradeRecipe.assemble()` (de `bte_mobs`) ya copia el NBT
+completo de la pieza base al resultado, pero esa cápsula solo tiene efecto
+en items que sean `ArmorGear`/`MeleeGear`/`BowGear`/`CrossbowGear` — en un
+`iron_helmet` normal, esa copia de NBT no tiene a qué "engancharse" y el
+encantamiento se pierde en silencio.
+
+**Fix:** `BlacksmithUpgradeEnchantMigrationMixin` engancha
+`BlacksmithUpgradeRecipe.assemble()` y, solo cuando el resultado **no** es
+uno de esos cuatro tipos de item de Dungeons Gear, escribe los
+encantamientos innatos de la pieza base directamente como encantamiento
+NBT real en el resultado — el mismo NBT que ya usa toda la maquinaria de
+Minecraft (y que los propios encantamientos de Dungeons Gear ya saben leer,
+puesto que consultan el nivel de forma genérica vía
+`EnchantmentHelper.getEnchantmentLevel`). Si el resultado SÍ es otro item de
+Dungeons Gear (p. ej. Spelunker → Cave Crawler), no se toca nada — ese caso
+ya funciona correctamente por su cuenta vía su propio `gearconfig`, y
+duplicar el encantamiento ahí solo generaría una línea repetida en el
+tooltip.
+
+Al enganchar `assemble()` en vez de una receta concreta, esto aplica
+automáticamente a **cualquier** receta `bte_mobs:blacksmith_upgrade` que
+definas de una pieza de Dungeons Gear hacia un item externo — no hace falta
+tocar código para añadir más, solo el JSON de la receta.
+
+Se incluye un ejemplo funcional en
+`data/bte_mobs/recipes/ej_fixes_battle_robes_to_iron_helmet.json`
+(`battle_robes_helmet` → `iron_helmet`, conservando Reckless I). Dime qué
+otras armaduras/piezas quieres mapear y te añado el JSON correspondiente.
+
+## Fix #5 — Tooltip muestra el nivel real con el set completo puesto
+
+**Problema:** el texto naranja de cada encantamiento innato ("Life Steal
+Aura I") lo pinta Dungeons Libraries con su propio listener de
+`ItemTooltipEvent` (`DescriptionHelper.onItemTooltip`), que siempre usa el
+nivel estático configurado en el `gearconfig` del item — no tiene ni idea
+del bonus de set de `FullSetBonusMixin`, que se calcula por entidad en el
+momento en que se dispara el efecto, no por item al pintar el tooltip. Así
+que el tooltip decía "I" aunque el efecto real ya estuviera aplicando "II"
+con el set completo puesto.
+
+**Fix:** `BuiltInEnchantmentTooltipFix` es un listener normal de Forge (sin
+Mixin, sin problemas de SRG) que escucha el mismo `ItemTooltipEvent` con
+prioridad `LOW` — Dungeons Libraries usa la prioridad `NORMAL` por defecto,
+así que el nuestro corre después, cuando la línea "I" ya existe. Si:
+
+- la pieza bajo el cursor es exactamente la que el jugador tiene equipada
+  (no una copia suelta en el inventario),
+- y ese jugador lleva las 4 piezas del mismo set, ninguna rota,
+
+sustituye cada línea de encantamiento innato por la versión con el nivel
+subido (mismo tope de `getMaxLevel()` que usa el propio bonus real), para
+que el tooltip nunca contradiga al efecto real.
+
+## Fix #6 — El bonus de set sobrevive a piezas migradas (`MigratedGearTag`)
+
+**Problema:** en cuanto una pieza deja de ser `ArmorGear` (por ejemplo, tras
+migrarla a `minecraft:netherite_helmet` con el Fix #4), tanto
+`FullSetBonusMixin` como `BuiltInEnchantmentTooltipFix` dejaban de
+reconocerla como parte del set — así que un set "heredado" (4 piezas que
+vienen todas del mismo set de Dungeons Gear, aunque ya no lo sean
+literalmente) nunca llegaba a nivel II, ni en el efecto real ni en el
+tooltip.
+
+**Fix:** `MigratedGearTag` es una utilidad compartida (no un Mixin) que:
+
+1. `BlacksmithUpgradeEnchantMigrationMixin` la usa para escribir, en el NBT
+   del resultado migrado, de qué `armorSet` viene la pieza y qué
+   encantamientos se migraron como innatos.
+2. `FullSetBonusMixin` y `BuiltInEnchantmentTooltipFix` ya no comprueban
+   `instanceof ArmorGear` directamente — preguntan a `MigratedGearTag`
+   cuál es el "set efectivo" de cada pieza (el suyo propio si sigue siendo
+   `ArmorGear`, o el heredado si fue migrada) y si un encantamiento
+   concreto es innato en ella (cápsula si es `ArmorGear`, o la lista
+   grabada en el NBT si fue migrada).
+
+Con esto, un set de 4 piezas donde alguna (o todas) se hayan migrado a
+`iron_helmet`/`netherite_leggings`/`twilightforest:ironwood_*` sigue
+contando como "set completo" mientras todas compartan el mismo origen y
+ninguna esté rota — el nivel II se aplica igual que con el set original sin
+migrar, y el tooltip lo refleja igual.
 
 1. Crea la clase Mixin en `src/main/java/com/endersjourney/ejfixes/mixin/`.
 2. Añade su nombre de clase al array `"mixins"` (o `"client"`/`"server"` si

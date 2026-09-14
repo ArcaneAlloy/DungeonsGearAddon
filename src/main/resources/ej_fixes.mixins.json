@@ -6,7 +6,8 @@
   "refmap": "ej_fixes.refmap.json",
   "mixins": [
     "BuiltInEnchantmentsMixin",
-    "FullSetBonusMixin"
+    "FullSetBonusMixin",
+    "BlacksmithUpgradeEnchantMigrationMixin"
   ],
   "client": [],
   "server": [],

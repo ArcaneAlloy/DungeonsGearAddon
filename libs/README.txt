@@ -11,6 +11,9 @@ Para el fix actual (BuiltInEnchantmentsMixin + FullSetBonusMixin) hace falta:
   - dont_break_items-1_19_2-1_19_4-1_3.jar
     (FullSetBonusMixin llama a BrokenItemsEvents.isItemBroken(ItemStack)
     directamente, ya incluido en esta carpeta)
+  - BeyondTheEndMobs-1_11_46.jar
+    (BlacksmithUpgradeEnchantMigrationMixin apunta directamente a la clase
+    BlacksmithUpgradeRecipe de este mod, ya incluido en esta carpeta)
 
 Utiles tambien para fixes futuros:
   - dungeons_gear-1_19_2-5_0_6-beta.jar
