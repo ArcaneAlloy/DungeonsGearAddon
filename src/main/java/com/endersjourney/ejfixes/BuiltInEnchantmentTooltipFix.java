@@ -5,6 +5,7 @@ import com.infamous.dungeons_libraries.capabilities.builtinenchants.BuiltInEncha
 import com.infamous.dungeons_libraries.items.gearconfig.ArmorGear;
 import com.infamous.dungeons_libraries.items.gearconfig.ArmorGearConfigRegistry;
 import fr.shoqapik.brokenitems.BrokenItemsEvents;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
@@ -20,14 +21,15 @@ import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Two independent tooltip touch-ups for {@code dungeons_gear} innate
- * enchantments, both driven by {@link MigratedGearTag}:
+ * Three touch-ups for {@code dungeons_gear} innate enchantment tooltip
+ * lines, all driven by {@link MigratedGearTag}:
  * <ul>
  *     <li><b>Color</b> — Dungeons Libraries paints an ArmorGear piece's own
  *     innate enchantment lines in orange itself
@@ -36,6 +38,14 @@ import java.util.Map;
  *     is just a normal, plainly-colored vanilla enchantment line, with
  *     nothing marking it as inherited. This always recolors it to match,
  *     regardless of whether the full set is currently worn.</li>
+ *     <li><b>Description</b> — a migrated piece's enchantment is real
+ *     vanilla NBT, so some other mod in the pack that reads
+ *     {@code enchantment.<namespace>.<path>.desc} lang entries adds a
+ *     description line under it. An ArmorGear piece's own innate line
+ *     never gets this, since Dungeons Libraries' handler only adds the
+ *     name. This adds the same description line to ArmorGear pieces too,
+ *     whenever one isn't already present, so both styles show it
+ *     consistently.</li>
  *     <li><b>Level</b> — neither Dungeons Libraries' own tooltip nor
  *     vanilla's generic enchantment line knows about
  *     {@code FullSetBonusMixin}'s +1 set bonus, since that's computed
@@ -72,28 +82,47 @@ public class BuiltInEnchantmentTooltipFix {
         }
 
         boolean fullSetBonus = isWearingAsPartOfCompleteUnbrokenMatchingSet(event.getEntity(), hovered, armorSet);
-
-        // Migrated pieces need recoloring regardless of the set bonus;
-        // ArmorGear pieces are already orange courtesy of Dungeons
-        // Libraries' own tooltip handler, so skip them entirely unless
-        // there's also a level to bump.
-        if (isArmorGear && !fullSetBonus) {
-            return;
-        }
-
         List<Component> tooltip = event.getToolTip();
+
         for (EnchantmentInstance instance : innate) {
             int displayLevel = fullSetBonus
                     ? Math.min(instance.level + 1, instance.enchantment.getMaxLevel())
                     : instance.level;
 
-            String originalText = instance.enchantment.getFullname(instance.level).getString();
-            Component replacement = instance.enchantment.getFullname(displayLevel).copy()
-                    .withStyle(Style.EMPTY.withColor(INNATE_COLOR));
-            for (int i = 0; i < tooltip.size(); i++) {
-                if (tooltip.get(i).getString().equals(originalText)) {
-                    tooltip.set(i, replacement);
-                    break;
+            // Color + level: only needs rewriting for a migrated piece
+            // (always, to recolor) or when the level actually changed.
+            int nameLineIndex = -1;
+            if (!isArmorGear || displayLevel != instance.level) {
+                String originalText = instance.enchantment.getFullname(instance.level).getString();
+                Component replacement = instance.enchantment.getFullname(displayLevel).copy()
+                        .withStyle(Style.EMPTY.withColor(INNATE_COLOR));
+                for (int i = 0; i < tooltip.size(); i++) {
+                    if (tooltip.get(i).getString().equals(originalText)) {
+                        tooltip.set(i, replacement);
+                        nameLineIndex = i;
+                        break;
+                    }
+                }
+            } else {
+                String currentText = instance.enchantment.getFullname(instance.level).getString();
+                for (int i = 0; i < tooltip.size(); i++) {
+                    if (tooltip.get(i).getString().equals(currentText)) {
+                        nameLineIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            // Description: add it right under the name line if this
+            // enchantment has one and it isn't already present.
+            ResourceLocation enchantId = ForgeRegistries.ENCHANTMENTS.getKey(instance.enchantment);
+            if (enchantId != null && nameLineIndex >= 0) {
+                String descKey = "enchantment." + enchantId.getNamespace() + "." + enchantId.getPath() + ".desc";
+                String descText = Component.translatable(descKey).getString();
+                boolean hasDescKey = !descText.equals(descKey);
+                boolean alreadyPresent = tooltip.stream().anyMatch(line -> line.getString().equals(descText));
+                if (hasDescKey && !alreadyPresent) {
+                    tooltip.add(nameLineIndex + 1, Component.literal(descText).withStyle(ChatFormatting.GRAY));
                 }
             }
         }

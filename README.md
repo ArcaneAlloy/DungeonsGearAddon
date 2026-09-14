@@ -197,7 +197,7 @@ Se incluye un ejemplo funcional en
 (`battle_robes_helmet` → `iron_helmet`, conservando Reckless I). Dime qué
 otras armaduras/piezas quieres mapear y te añado el JSON correspondiente.
 
-## Fix #5 — Tooltip: color naranja siempre, nivel real con el set completo
+## Fix #5 — Tooltip: color y descripción consistentes, nivel real con el set completo
 
 **Problema 1 (color):** una pieza `ArmorGear` normal muestra su
 encantamiento innato en naranja porque Dungeons Libraries lo pinta así
@@ -206,7 +206,14 @@ por ese código — su línea de encantamiento la pinta el renderer genérico de
 Minecraft, con el color plano de siempre, sin nada que indique que es un
 encantamiento heredado/innato.
 
-**Problema 2 (nivel):** ni el listener de Dungeons Libraries ni el
+**Problema 2 (descripción):** al revés que el color — una pieza migrada
+lleva el encantamiento como NBT real, así que algún otro mod del pack que
+lee las claves de idioma `enchantment.<namespace>.<path>.desc` le añade
+automáticamente una línea de descripción debajo (p. ej. "Small chance to
+avoid all damage."). Una pieza `ArmorGear` original nunca la tiene, porque
+Dungeons Libraries solo añade el nombre, no la descripción.
+
+**Problema 3 (nivel):** ni el listener de Dungeons Libraries ni el
 renderer genérico de Minecraft saben nada del bonus de
 `FullSetBonusMixin`, que se calcula por entidad en el momento en que se
 dispara el efecto, no por item al pintar el tooltip. Así que el tooltip
@@ -217,12 +224,16 @@ completo puesto.
 Mixin, sin problemas de SRG) que escucha el mismo `ItemTooltipEvent` con
 prioridad `LOW` — Dungeons Libraries usa la prioridad `NORMAL` por defecto,
 así que el nuestro corre después, cuando la línea original ya existe.
-Separa los dos problemas:
+Resuelve los tres problemas por separado:
 
 - **Color:** si la pieza es migrada (no `ArmorGear`), sus líneas de
   encantamiento innato se repintan de naranja **siempre**, tengas el set
   completo o no — es solo una cuestión de identidad visual del item. Una
   pieza `ArmorGear` normal no se toca aquí porque ya sale naranja de fábrica.
+- **Descripción:** para cualquier encantamiento innato (`ArmorGear` o
+  migrado) que tenga clave `.desc` en el idioma y no la muestre ya, se
+  inserta esa línea justo debajo del nombre, en gris — así ambos estilos
+  quedan iguales.
 - **Nivel:** solo si la pieza bajo el cursor es exactamente la que el
   jugador tiene equipada (no una copia suelta en el inventario) y ese
   jugador lleva las 4 piezas del mismo set (rastreado vía
