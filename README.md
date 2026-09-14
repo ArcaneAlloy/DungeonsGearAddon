@@ -175,48 +175,57 @@ encantamiento (melee_aura y life_steal_aura tope en II, lucky_explorer tope
 en III), así que ninguno queda inflado por encima de lo que el propio juego
 permite.
 
-## Fix #4 — Migrar encantamientos innatos a items fuera de Dungeons Gear (`bte_mobs`)
+## Fix #4 — Heredar encantamientos innatos en cualquier upgrade (`bte_mobs`)
 
-**Objetivo:** poder crear recetas de herrero que suban de tier una pieza de
-Dungeons Gear a un item de OTRO mod o vanilla (p. ej.
-`dungeons_gear:battle_robes_helmet` con Reckless I → `minecraft:iron_helmet`,
-o a `twilightforest:ironwood_helmet`), conservando el encantamiento innato.
+**Objetivo:** que el encantamiento innato de la pieza base de una receta de
+herrero se herede en el resultado — tanto si el resultado es un item fuera
+de Dungeons Gear (p. ej. `dungeons_gear:battle_robes_helmet` con Reckless I
+→ `minecraft:iron_helmet`) como si el resultado es **otra pieza de Dungeons
+Gear con su propio encantamiento distinto** (p. ej. `twin_bow` con Bonus
+Shot I → `bow_of_lost_souls`, que de por sí trae Multishot I — el resultado
+final se queda con **ambos**).
 
 **Problema:** los encantamientos innatos de Dungeons Gear viven en una
-cápsula (capability) aparte, no en el NBT real de encantamientos del item.
-`BlacksmithUpgradeRecipe.assemble()` (de `bte_mobs`) ya copia el NBT
-completo de la pieza base al resultado, pero esa cápsula solo tiene efecto
-en items que sean `ArmorGear`/`MeleeGear`/`BowGear`/`CrossbowGear` — en un
-`iron_helmet` normal, esa copia de NBT no tiene a qué "engancharse" y el
-encantamiento se pierde en silencio.
+cápsula (capability) aparte, no en el NBT real de encantamientos del item,
+y esa cápsula siempre se deriva de cero a partir del `gearconfig` del
+propio item — nunca hereda nada de la pieza de la que vino.
+`BlacksmithUpgradeRecipe.assemble()` (de `bte_mobs`) copia el NBT completo
+de la base al resultado, pero eso no tiene ningún efecto en ninguno de los
+dos casos: en un item externo esa cápsula copiada no tiene a qué
+"engancharse"; en otra pieza de Dungeons Gear, su propia cápsula se
+recalcula igualmente desde su `gearconfig`, ignorando lo que se acaba de
+copiar.
 
 **Fix:** `BlacksmithUpgradeEnchantMigrationMixin` engancha
-`BlacksmithUpgradeRecipe.assemble()` y, solo cuando el resultado **no** es
-uno de esos cuatro tipos de item de Dungeons Gear, escribe los
-encantamientos innatos de la pieza base directamente como encantamiento
-NBT real en el resultado — el mismo NBT que ya usa toda la maquinaria de
-Minecraft (y que los propios encantamientos de Dungeons Gear ya saben leer,
-puesto que consultan el nivel de forma genérica vía
-`EnchantmentHelper.getEnchantmentLevel`). Si el resultado SÍ es otro item de
-Dungeons Gear (p. ej. Spelunker → Cave Crawler), no se toca nada — ese caso
-ya funciona correctamente por su cuenta vía su propio `gearconfig`, y
-duplicar el encantamiento ahí solo generaría una línea repetida en el
-tooltip.
+`BlacksmithUpgradeRecipe.assemble()` y calcula qué encantamientos innatos
+de la base **no** aporta ya el resultado por su cuenta, y solo esos los
+escribe como encantamiento NBT real en el resultado — el mismo NBT que ya
+usa toda la maquinaria de Minecraft (y que los propios encantamientos de
+Dungeons Gear ya saben leer, puesto que consultan el nivel de forma
+genérica vía `EnchantmentHelper.getEnchantmentLevel`). Un encantamiento que
+el resultado ya trae de forma nativa (mismo id) se deja tal cual, sin
+duplicar.
 
 Al enganchar `assemble()` en vez de una receta concreta, esto aplica
 automáticamente a **cualquier** receta `bte_mobs:blacksmith_upgrade` que
-definas de una pieza de Dungeons Gear hacia un item externo — no hace falta
-tocar código para añadir más, solo el JSON de la receta.
+definas de una pieza de Dungeons Gear — no hace falta tocar código para
+añadir más, solo el JSON de la receta.
 
 Se incluye un ejemplo funcional en
 `data/bte_mobs/recipes/ej_fixes_battle_robes_to_iron_helmet.json`
-(`battle_robes_helmet` → `iron_helmet`, conservando Reckless I). Dime qué
-otras armaduras/piezas — armadura o **arma** — quieres mapear y te añado el
-JSON correspondiente. La comprobación `isDungeonsGearGear` ya cubre
-`MeleeGear`/`BowGear`/`CrossbowGear` desde el principio, así que este fix
-ya migraba correctamente los encantamientos de armas — el hueco real
-estaba en cómo se mostraban después (fix #5) y en un bug del bonus de set
-que de paso anulaba su nivel (fix #2, corregido arriba).
+(`battle_robes_helmet` → `iron_helmet`, conservando Reckless I) — pero no
+hace falta ninguna receta nueva para el caso de armas: `bte_mobs` ya trae
+57 recetas de upgrade arma-a-arma dentro del propio Dungeons Gear (Twin Bow
+→ Bow of Lost Souls entre ellas), y este fix las cubre automáticamente en
+cuanto se compila, sin tocar ningún JSON.
+
+**Nota — mismo encantamiento en ambos lados:** cuando la base y el
+resultado comparten el mismo encantamiento (p. ej. Twin Bow con Bonus Shot
+I → Haunted Bow, que también trae Bonus Shot I de fábrica), el fix ya no se
+limita a dejarlo tal cual — lo sube +1 sobre el nivel de la base (con tope
+en el máximo del propio encantamiento), el mismo criterio que ya aplicamos
+a mano en las 5 armaduras del fix #3, pero aquí calculado en código para
+cualquier cadena, presente o futura, de armadura o de arma.
 
 ## Fix #5 — Tooltip: color y descripción consistentes (armadura y arma), nivel real con el set completo
 

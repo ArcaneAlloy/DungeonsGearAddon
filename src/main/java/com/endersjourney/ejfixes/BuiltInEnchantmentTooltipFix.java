@@ -22,49 +22,40 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.registries.ForgeRegistries;
 
-import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.endersjourney.ejfixes.DungeonsGearGearTypes.isDungeonsGearGear;
 
 /**
  * Three touch-ups for {@code dungeons_gear} innate enchantment tooltip
- * lines — armor or weapon alike — all driven by {@link MigratedGearTag}:
+ * lines — armor or weapon alike — all driven by {@link MigratedGearTag}.
+ * For each relevant enchantment on the hovered item, this compares two
+ * numbers:
  * <ul>
- *     <li><b>Color</b> — Dungeons Libraries paints a piece's own innate
- *     enchantment lines in orange itself
- *     ({@code DescriptionHelper.onItemTooltip}), for any of its own gear
- *     classes (armor or weapon). A migrated piece (e.g. a
- *     {@code netherite_helmet} or {@code netherite_sword}) has no such
- *     line — its innate enchantment is just a normal, plainly-colored
- *     vanilla enchantment line, with nothing marking it as inherited. This
- *     always recolors it to match, regardless of whether any set bonus
- *     applies.</li>
- *     <li><b>Description</b> — a migrated piece's enchantment is real
- *     vanilla NBT, so some other mod in the pack that reads
- *     {@code enchantment.<namespace>.<path>.desc} lang entries adds a
- *     description line under it. A piece that's still one of Dungeons
- *     Gear's own gear classes never gets this, since Dungeons Libraries'
- *     handler only adds the name. This adds the same description line to
- *     those too, whenever one isn't already present, so every style shows
- *     it consistently.</li>
- *     <li><b>Level</b> — armor only. Neither Dungeons Libraries' own
- *     tooltip nor vanilla's generic enchantment line knows about
- *     {@code FullSetBonusMixin}'s +1 full-set bonus, since that's computed
- *     per-entity at effect-trigger time, not per-item at tooltip time. So
- *     both read e.g. "Life Steal Aura I" even while the full set is
- *     equipped and the real effective level is II. This shows the boosted
- *     level instead, but only while the viewing player actually has this
- *     exact stack equipped as part of a complete, unbroken, matching set —
- *     mirroring exactly the condition
- *     {@link com.endersjourney.ejfixes.mixin.FullSetBonusMixin} uses to
- *     grant the real bonus, so the tooltip and the actual effect never
- *     disagree. A weapon has no "set" to complete, so this never applies
- *     to one.</li>
+ *     <li>{@code nativeLevel} — the level from the item's own built-in
+ *     capability (if it's still one of Dungeons Gear's own gear classes),
+ *     i.e. exactly what Dungeons Libraries' own tooltip handler
+ *     ({@code DescriptionHelper.onItemTooltip}) already rendered, in
+ *     orange, with no description.</li>
+ *     <li>{@code displayLevel} — the level that should actually be shown:
+ *     the higher of {@code nativeLevel} and the real vanilla enchantment
+ *     NBT level (which {@code BlacksmithUpgradeEnchantMigrationMixin}
+ *     writes for an inherited enchantment, possibly boosted above what the
+ *     item natively provides — see its own javadoc), further boosted by 1
+ *     if {@code FullSetBonusMixin}'s full-set bonus currently applies
+ *     (armor only, and only while actually equipped as part of a complete,
+ *     unbroken, matching set).</li>
  * </ul>
- * Runs at LOW priority so it applies after both Dungeons Libraries' handler
- * and vanilla's own tooltip line have already run.
+ * When the two differ, or when there was no native line to begin with
+ * (a migrated piece, or an inherited enchantment the item doesn't provide
+ * natively), this rewrites the tooltip line — orange, with the enchantment
+ * pack's own description line added under it, matching Dungeons Libraries'
+ * only-the-name style otherwise. Runs at LOW priority so it applies after
+ * both Dungeons Libraries' handler and vanilla's own tooltip line have
+ * already run.
  */
 @Mod.EventBusSubscriber(modid = EJFixes.MODID, value = Dist.CLIENT)
 public class BuiltInEnchantmentTooltipFix {
@@ -76,8 +67,23 @@ public class BuiltInEnchantmentTooltipFix {
         ItemStack hovered = event.getItemStack();
         boolean isOriginalGear = isDungeonsGearGear(hovered.getItem());
 
-        List<EnchantmentInstance> innate = getInnateEnchantments(hovered);
-        if (innate.isEmpty()) {
+        BuiltInEnchantments capability = isOriginalGear
+                ? BuiltInEnchantmentsHelper.getBuiltInEnchantmentsCapability(hovered)
+                : null;
+        Map<Enchantment, Integer> realNbt = EnchantmentHelper.getEnchantments(hovered);
+
+        Set<Enchantment> relevant = new LinkedHashSet<>();
+        if (capability != null) {
+            for (EnchantmentInstance instance : capability.getBuiltInEnchantments(ArmorGearConfigRegistry.GEAR_CONFIG_BUILTIN_RESOURCELOCATION)) {
+                relevant.add(instance.enchantment);
+            }
+        }
+        for (Enchantment enchantment : realNbt.keySet()) {
+            if (MigratedGearTag.isInnate(hovered, enchantment)) {
+                relevant.add(enchantment);
+            }
+        }
+        if (relevant.isEmpty()) {
             return;
         }
 
@@ -87,17 +93,17 @@ public class BuiltInEnchantmentTooltipFix {
 
         List<Component> tooltip = event.getToolTip();
 
-        for (EnchantmentInstance instance : innate) {
-            int displayLevel = fullSetBonus
-                    ? Math.min(instance.level + 1, instance.enchantment.getMaxLevel())
-                    : instance.level;
+        for (Enchantment enchantment : relevant) {
+            int nativeLevel = capability != null ? capability.getBuiltInItemEnchantmentLevel(enchantment) : 0;
+            int realLevel = realNbt.getOrDefault(enchantment, 0);
+            int bakedLevel = Math.max(nativeLevel, realLevel);
+            boolean hasNativeLine = nativeLevel > 0;
+            int displayLevel = fullSetBonus ? Math.min(bakedLevel + 1, enchantment.getMaxLevel()) : bakedLevel;
 
-            // Color + level: only needs rewriting for a migrated piece
-            // (always, to recolor) or when the level actually changed.
             int nameLineIndex = -1;
-            if (!isOriginalGear || displayLevel != instance.level) {
-                String originalText = instance.enchantment.getFullname(instance.level).getString();
-                Component replacement = instance.enchantment.getFullname(displayLevel).copy()
+            if (!hasNativeLine || displayLevel != nativeLevel) {
+                String originalText = enchantment.getFullname(hasNativeLine ? nativeLevel : realLevel).getString();
+                Component replacement = enchantment.getFullname(displayLevel).copy()
                         .withStyle(Style.EMPTY.withColor(INNATE_COLOR));
                 for (int i = 0; i < tooltip.size(); i++) {
                     if (tooltip.get(i).getString().equals(originalText)) {
@@ -107,7 +113,7 @@ public class BuiltInEnchantmentTooltipFix {
                     }
                 }
             } else {
-                String currentText = instance.enchantment.getFullname(instance.level).getString();
+                String currentText = enchantment.getFullname(nativeLevel).getString();
                 for (int i = 0; i < tooltip.size(); i++) {
                     if (tooltip.get(i).getString().equals(currentText)) {
                         nameLineIndex = i;
@@ -118,7 +124,7 @@ public class BuiltInEnchantmentTooltipFix {
 
             // Description: add it right under the name line if this
             // enchantment has one and it isn't already present.
-            ResourceLocation enchantId = ForgeRegistries.ENCHANTMENTS.getKey(instance.enchantment);
+            ResourceLocation enchantId = ForgeRegistries.ENCHANTMENTS.getKey(enchantment);
             if (enchantId != null && nameLineIndex >= 0) {
                 String descKey = "enchantment." + enchantId.getNamespace() + "." + enchantId.getPath() + ".desc";
                 String descText = Component.translatable(descKey).getString();
@@ -129,24 +135,6 @@ public class BuiltInEnchantmentTooltipFix {
                 }
             }
         }
-    }
-
-    /** The piece's own innate enchantments — armor or weapon — from the
-     * capability if it's still one of Dungeons Gear's own gear classes, or
-     * from its real NBT filtered down to the ones {@link MigratedGearTag}
-     * recorded as inherited, if it was migrated. */
-    private static List<EnchantmentInstance> getInnateEnchantments(ItemStack stack) {
-        if (isDungeonsGearGear(stack.getItem())) {
-            BuiltInEnchantments capability = BuiltInEnchantmentsHelper.getBuiltInEnchantmentsCapability(stack);
-            return capability.getBuiltInEnchantments(ArmorGearConfigRegistry.GEAR_CONFIG_BUILTIN_RESOURCELOCATION);
-        }
-        List<EnchantmentInstance> result = new ArrayList<>();
-        for (Map.Entry<Enchantment, Integer> entry : EnchantmentHelper.getEnchantments(stack).entrySet()) {
-            if (MigratedGearTag.isInnate(stack, entry.getKey())) {
-                result.add(new EnchantmentInstance(entry.getKey(), entry.getValue()));
-            }
-        }
-        return result;
     }
 
     private static boolean isWearingAsPartOfCompleteUnbrokenMatchingSet(Player player, ItemStack hovered, ResourceLocation armorSet) {

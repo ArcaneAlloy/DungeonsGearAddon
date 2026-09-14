@@ -95,16 +95,21 @@ public final class MigratedGearTag {
 
     /**
      * Whether the given enchantment is an inherited/innate part of this
-     * piece — armor or weapon — from its own built-in-enchantments
-     * capability if it's still one of Dungeons Gear's own gear classes, or
-     * from the recorded migration marker otherwise. False for an
-     * enchantment that's only present because it was manually applied via
-     * a table/anvil.
+     * piece — armor or weapon. Checks its own built-in-enchantments
+     * capability first (if it's still one of Dungeons Gear's own gear
+     * classes), then the recorded migration/inheritance marker — a piece
+     * can have both at once now (e.g. Bow of Lost Souls' own Multishot
+     * plus an inherited Bonus Shot from a Twin Bow upgrade), so this
+     * checks both rather than picking one based on item type alone. False
+     * for an enchantment that's only present because it was manually
+     * applied via a table/anvil.
      */
     public static boolean isInnate(ItemStack stack, Enchantment enchantment) {
         if (isDungeonsGearGear(stack.getItem())) {
             BuiltInEnchantments capability = BuiltInEnchantmentsHelper.getBuiltInEnchantmentsCapability(stack);
-            return capability.getBuiltInItemEnchantmentLevel(enchantment) > 0;
+            if (capability.getBuiltInItemEnchantmentLevel(enchantment) > 0) {
+                return true;
+            }
         }
         CompoundTag marker = getMarker(stack);
         if (marker == null) {

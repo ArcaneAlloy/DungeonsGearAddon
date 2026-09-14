@@ -37,23 +37,30 @@ import static com.endersjourney.ejfixes.DungeonsGearGearTypes.isDungeonsGearGear
  * zeroed out every weapon enchantment's level the moment this Mixin ran.
  * <p>
  * For each relevant slot, a piece's own contribution to the level is the
- * sum of two independent sources:
+ * MAX of two independent sources:
  * <ul>
  *     <li><b>Real vanilla enchantment NBT</b> — read via
  *     {@code EnchantmentHelper.getEnchantments(stack)}, exactly like any
  *     ordinary enchantment. This is what {@code BlacksmithUpgradeEnchantMigrationMixin}
- *     writes onto non-Dungeons-Gear upgrade results, and it's also what
- *     Don't Break My Items already zeroes out on its own for a broken item
- *     — so broken handling for this source needs no extra code here.</li>
+ *     writes onto an upgrade result, and it's also what Don't Break My
+ *     Items already zeroes out on its own for a broken item — so broken
+ *     handling for this source needs no extra code here.</li>
  *     <li><b>The built-in-enchantments capability</b> — only present on
  *     Dungeons Gear's own gear items, via {@link BuiltInEnchantmentsHelper}.
  *     Don't Break My Items does NOT know about this capability, so a broken
  *     piece's own contribution from it is explicitly zeroed below
  *     (Fix 1).</li>
  * </ul>
- * The two sources are summed per slot, then the highest value across all
- * relevant slots becomes the base level — mirroring vanilla's own per-slot
- * MAX aggregation.
+ * It's a MAX, not a sum: {@code BlacksmithUpgradeEnchantMigrationMixin} can
+ * now write a boosted level into real NBT for an enchantment a piece
+ * ALREADY provides natively (e.g. Haunted Bow's own Bonus Shot I getting
+ * boosted to II on upgrade from Twin Bow) — in that case real NBT already
+ * represents the final, correct total, and adding the native capability
+ * level on top of it again would double-count. A MAX handles both that
+ * case and the original "only one source has it" case identically.
+ * <p>
+ * The per-piece MAX is then itself maxed across all relevant slots —
+ * mirroring vanilla's own per-slot MAX aggregation.
  * <p>
  * Fix 2 — full-set bonus (armor only): only evaluated when the
  * enchantment's relevant slots are exactly the 4 armor slots. Set
@@ -97,16 +104,17 @@ public abstract class FullSetBonusMixin {
         for (ItemStack stack : slotItems.values()) {
             boolean broken = BrokenItemsEvents.isItemBroken(stack);
 
-            // Real vanilla NBT enchantment: a migrated built-in enchant on a
-            // non-Dungeons-Gear item, or a manually applied one. Already
-            // correctly zeroed by Don't Break My Items when broken.
+            // Real vanilla NBT enchantment: an upgrade-inherited (and
+            // possibly boosted) enchant, or a manually applied one.
+            // Already correctly zeroed by Don't Break My Items when broken.
             int ownLevel = EnchantmentHelper.getEnchantments(stack).getOrDefault(enchantment, 0);
 
             // The built-in-enchantments capability, only meaningful on
-            // Dungeons Gear's own gear items.
+            // Dungeons Gear's own gear items. MAX, not sum — see class
+            // javadoc for why.
             if (isDungeonsGearGear(stack.getItem()) && !broken) {
                 BuiltInEnchantments capability = BuiltInEnchantmentsHelper.getBuiltInEnchantmentsCapability(stack);
-                ownLevel += capability.getBuiltInItemEnchantmentLevel(enchantment); // Fix 1
+                ownLevel = Math.max(ownLevel, capability.getBuiltInItemEnchantmentLevel(enchantment)); // Fix 1
             }
 
             baseLevel = Math.max(baseLevel, ownLevel);
