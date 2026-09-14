@@ -28,11 +28,13 @@ Mixins so they don't require patching or shading any other mod's jar.
 ```
 src/main/java/com/endersjourney/ejfixes/
 ├── EJFixes.java                     ← clase principal del mod (@Mod)
-├── MigratedGearTag.java             ← utilidad: rastrea el set de origen y
-│                                        los encantamientos innatos de una
-│                                        pieza migrada (ver fix #6)
-├── BuiltInEnchantmentTooltipFix.java ← fix #5: tooltip muestra el nivel real
-│                                        con el set completo puesto
+├── DungeonsGearGearTypes.java       ← utilidad: es esto un item propio de
+│                                        Dungeons Gear (armadura o arma)
+├── MigratedGearTag.java             ← utilidad: rastrea el origen y los
+│                                        encantamientos innatos de una
+│                                        pieza migrada (armadura o arma)
+├── BuiltInEnchantmentTooltipFix.java ← fix #5: tooltip consistente
+│                                        (color/descripción/nivel real)
 └── mixin/
     ├── BuiltInEnchantmentsMixin.java ← fix #1: encantamientos innatos en
     │                                    todas las piezas de un set, no solo
@@ -95,6 +97,20 @@ ni permite acumularlo.
 Gear, el/los encantamiento(s) innato(s) de ese set suben de nivel 1 a nivel
 2 mientras lo lleve puesto — sin tocar ningún JSON — y respetando el estado
 "roto" que introduce el mod Don't Break My Items.
+
+**⚠️ Bug corregido (importante):** las primeras versiones de este Mixin
+recalculaban el nivel mirando siempre los 4 slots de armadura (casco,
+pechera, pantalón, botas), sin importar de qué tipo era el encantamiento.
+Para un encantamiento de **arma** (mainhand — Sharpness-style, no aplica
+aquí, pero sí los de Dungeons Gear como los de espada/arco), eso significaba
+que el Mixin comprobaba los 4 slots de armadura, no encontraba nada ahí, y
+devolvía nivel 0 — **anulando en silencio cualquier encantamiento innato de
+arma** desde que este fix se activó, sin ningún error visible. Ahora usa
+`enchantment.getSlotItems(entity)` (la propia API de Minecraft), que
+devuelve los slots correctos para cada encantamiento — los 4 de armadura
+para uno de armadura, mainhand para uno de arma — así que el bonus de set
+(armor-only) y el nivel base (cualquier tipo) se calculan cada uno con los
+slots que le corresponden.
 
 **Cómo:** todos los encantamientos "aura" de Dungeons Gear (Melee Aura,
 Life Steal Aura, Potion Aura, etc.) consultan su propio nivel cada tick
@@ -195,14 +211,20 @@ tocar código para añadir más, solo el JSON de la receta.
 Se incluye un ejemplo funcional en
 `data/bte_mobs/recipes/ej_fixes_battle_robes_to_iron_helmet.json`
 (`battle_robes_helmet` → `iron_helmet`, conservando Reckless I). Dime qué
-otras armaduras/piezas quieres mapear y te añado el JSON correspondiente.
+otras armaduras/piezas — armadura o **arma** — quieres mapear y te añado el
+JSON correspondiente. La comprobación `isDungeonsGearGear` ya cubre
+`MeleeGear`/`BowGear`/`CrossbowGear` desde el principio, así que este fix
+ya migraba correctamente los encantamientos de armas — el hueco real
+estaba en cómo se mostraban después (fix #5) y en un bug del bonus de set
+que de paso anulaba su nivel (fix #2, corregido arriba).
 
-## Fix #5 — Tooltip: color y descripción consistentes, nivel real con el set completo
+## Fix #5 — Tooltip: color y descripción consistentes (armadura y arma), nivel real con el set completo
 
-**Problema 1 (color):** una pieza `ArmorGear` normal muestra su
-encantamiento innato en naranja porque Dungeons Libraries lo pinta así
-(`DescriptionHelper.onItemTooltip`). Una pieza migrada (fix #4) ya no pasa
-por ese código — su línea de encantamiento la pinta el renderer genérico de
+**Problema 1 (color):** una pieza `ArmorGear`/`MeleeGear`/`BowGear`/
+`CrossbowGear` original muestra su encantamiento innato en naranja porque
+Dungeons Libraries lo pinta así (`DescriptionHelper.onItemTooltip`), sin
+distinguir armadura de arma. Una pieza migrada (fix #4) ya no pasa por ese
+código — su línea de encantamiento la pinta el renderer genérico de
 Minecraft, con el color plano de siempre, sin nada que indique que es un
 encantamiento heredado/innato.
 
@@ -210,15 +232,17 @@ encantamiento heredado/innato.
 lleva el encantamiento como NBT real, así que algún otro mod del pack que
 lee las claves de idioma `enchantment.<namespace>.<path>.desc` le añade
 automáticamente una línea de descripción debajo (p. ej. "Small chance to
-avoid all damage."). Una pieza `ArmorGear` original nunca la tiene, porque
-Dungeons Libraries solo añade el nombre, no la descripción.
+avoid all damage."). Una pieza original de Dungeons Gear (armadura o arma)
+nunca la tiene, porque Dungeons Libraries solo añade el nombre, no la
+descripción.
 
-**Problema 3 (nivel):** ni el listener de Dungeons Libraries ni el
-renderer genérico de Minecraft saben nada del bonus de
+**Problema 3 (nivel, solo armadura):** ni el listener de Dungeons Libraries
+ni el renderer genérico de Minecraft saben nada del bonus de
 `FullSetBonusMixin`, que se calcula por entidad en el momento en que se
 dispara el efecto, no por item al pintar el tooltip. Así que el tooltip
 decía "I" aunque el efecto real ya estuviera aplicando "II" con el set
-completo puesto.
+completo puesto. Un arma no tiene "set" que completar, así que esta parte
+nunca le aplica.
 
 **Fix:** `BuiltInEnchantmentTooltipFix` es un listener normal de Forge (sin
 Mixin, sin problemas de SRG) que escucha el mismo `ItemTooltipEvent` con

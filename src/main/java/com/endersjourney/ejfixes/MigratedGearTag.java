@@ -17,17 +17,23 @@ import net.minecraftforge.registries.ForgeRegistries;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.endersjourney.ejfixes.DungeonsGearGearTypes.isDungeonsGearGear;
+
 /**
- * A {@code BlacksmithUpgradeRecipe} result that isn't {@link ArmorGear}
- * (e.g. a migrated {@code netherite_helmet}) can't carry the built-in
- * enchantments capability, so full-set tracking can't rely on
- * {@code instanceof ArmorGear} + {@code getArmorSet()} alone once a set has
- * a migrated piece in it. This records, in the migrated item's own NBT,
- * which armor set it came from and which enchantments were carried over as
- * innate — so {@code FullSetBonusMixin} and {@code BuiltInEnchantmentTooltipFix}
- * can still recognize "these 4 pieces share the same origin set" and "this
- * enchantment on this piece is inherited, not manually enchanted", even
- * after migration.
+ * A {@code BlacksmithUpgradeRecipe} result that isn't one of Dungeons
+ * Gear's own gear classes (e.g. a migrated {@code netherite_helmet} or
+ * {@code netherite_sword}) can't carry the built-in enchantments
+ * capability, so tracking has to live in the migrated item's own NBT
+ * instead. This records which enchantments were carried over as innate —
+ * for any gear type — and, additionally for armor specifically, which
+ * armor set it came from (needed only for the full-set bonus, which is an
+ * armor-only concept: a single weapon has nothing to "complete a set"
+ * with).
+ * <p>
+ * {@code FullSetBonusMixin} and {@code BuiltInEnchantmentTooltipFix} use
+ * this so a migrated piece — armor or weapon — is still recognized as
+ * carrying an inherited enchantment, not one a player manually applied via
+ * a table/anvil.
  */
 public final class MigratedGearTag {
 
@@ -41,18 +47,19 @@ public final class MigratedGearTag {
     /**
      * Called by {@code BlacksmithUpgradeEnchantMigrationMixin} right after
      * it writes the migrated enchantments onto the result's real NBT.
-     * Records the base piece's origin armor set (propagating it through a
-     * chain of migrations if the base was itself already a migrated item)
-     * and the set of enchantment ids that were just carried over.
+     * Records which enchantment ids were just carried over as innate, and —
+     * only if the base was armor — the origin armor set (propagating it
+     * through a chain of migrations if the base was itself already a
+     * migrated item).
      */
     public static void writeFrom(ItemStack base, ItemStack result) {
-        ResourceLocation armorSet = getEffectiveArmorSet(base);
-        if (armorSet == null) {
+        List<EnchantmentInstance> innateInstances = getInnateEnchantmentsOf(base);
+        if (innateInstances.isEmpty()) {
             return;
         }
 
         ListTag innateList = new ListTag();
-        for (EnchantmentInstance instance : getInnateEnchantments(base)) {
+        for (EnchantmentInstance instance : innateInstances) {
             ResourceLocation id = ForgeRegistries.ENCHANTMENTS.getKey(instance.enchantment);
             if (id != null) {
                 innateList.add(StringTag.valueOf(id.toString()));
@@ -60,7 +67,10 @@ public final class MigratedGearTag {
         }
 
         CompoundTag marker = new CompoundTag();
-        marker.putString(ARMOR_SET_KEY, armorSet.toString());
+        ResourceLocation armorSet = getEffectiveArmorSet(base);
+        if (armorSet != null) {
+            marker.putString(ARMOR_SET_KEY, armorSet.toString());
+        }
         marker.put(INNATE_ENCHANTMENTS_KEY, innateList);
         result.getOrCreateTag().put(TAG_KEY, marker);
     }
@@ -69,14 +79,15 @@ public final class MigratedGearTag {
      * The armor set this piece is considered part of for full-set-bonus
      * purposes: its own {@code ArmorGear#getArmorSet()} if it's still
      * Dungeons Gear armor, or the origin set recorded by {@link #writeFrom}
-     * if it was migrated. Null if neither applies.
+     * if it was migrated. Null for weapons (no such concept) and for
+     * anything else that doesn't resolve to one.
      */
     public static ResourceLocation getEffectiveArmorSet(ItemStack stack) {
         if (stack.getItem() instanceof ArmorGear armorGear) {
             return armorGear.getArmorSet();
         }
         CompoundTag marker = getMarker(stack);
-        if (marker == null) {
+        if (marker == null || !marker.contains(ARMOR_SET_KEY)) {
             return null;
         }
         return ResourceLocation.tryParse(marker.getString(ARMOR_SET_KEY));
@@ -84,13 +95,14 @@ public final class MigratedGearTag {
 
     /**
      * Whether the given enchantment is an inherited/innate part of this
-     * piece — from its own built-in-enchantments capability if it's still
-     * ArmorGear, or from the recorded migration marker otherwise. False for
-     * an enchantment that's only present because it was manually applied
-     * via a table/anvil.
+     * piece — armor or weapon — from its own built-in-enchantments
+     * capability if it's still one of Dungeons Gear's own gear classes, or
+     * from the recorded migration marker otherwise. False for an
+     * enchantment that's only present because it was manually applied via
+     * a table/anvil.
      */
     public static boolean isInnate(ItemStack stack, Enchantment enchantment) {
-        if (stack.getItem() instanceof ArmorGear) {
+        if (isDungeonsGearGear(stack.getItem())) {
             BuiltInEnchantments capability = BuiltInEnchantmentsHelper.getBuiltInEnchantmentsCapability(stack);
             return capability.getBuiltInItemEnchantmentLevel(enchantment) > 0;
         }
@@ -119,13 +131,14 @@ public final class MigratedGearTag {
         return tag.getCompound(TAG_KEY);
     }
 
-    private static List<EnchantmentInstance> getInnateEnchantments(ItemStack base) {
-        if (base.getItem() instanceof ArmorGear) {
+    /** The piece's own innate enchantments — armor or weapon — from the
+     * capability if it's still one of Dungeons Gear's own gear classes, or
+     * re-derived from its own recorded marker if it was itself already a
+     * migrated piece (a chain of upgrades). */
+    private static List<EnchantmentInstance> getInnateEnchantmentsOf(ItemStack base) {
+        if (isDungeonsGearGear(base.getItem())) {
             return BuiltInEnchantmentsHelper.getBuiltInEnchantmentsCapability(base).getAllBuiltInEnchantmentInstances();
         }
-        // Base was itself already a migrated (non-ArmorGear) piece: there's
-        // no capability to read, so re-derive instances from its own
-        // recorded marker instead.
         CompoundTag marker = getMarker(base);
         List<EnchantmentInstance> result = new ArrayList<>();
         if (marker == null) {

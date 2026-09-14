@@ -8,7 +8,6 @@ import com.infamous.dungeons_libraries.items.gearconfig.CrossbowGear;
 import com.infamous.dungeons_libraries.items.gearconfig.MeleeGear;
 import fr.shoqapik.btemobs.menu.container.BteAbstractCraftContainer;
 import fr.shoqapik.btemobs.recipe.BlacksmithUpgradeRecipe;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
@@ -17,6 +16,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import static com.endersjourney.ejfixes.DungeonsGearGearTypes.isDungeonsGearGear;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -95,10 +96,4 @@ public abstract class BlacksmithUpgradeEnchantMigrationMixin {
         com.endersjourney.ejfixes.MigratedGearTag.writeFrom(base, result);
     }
 
-    private static boolean isDungeonsGearGear(Item item) {
-        return item instanceof ArmorGear
-                || item instanceof MeleeGear
-                || item instanceof BowGear
-                || item instanceof CrossbowGear;
-    }
 }

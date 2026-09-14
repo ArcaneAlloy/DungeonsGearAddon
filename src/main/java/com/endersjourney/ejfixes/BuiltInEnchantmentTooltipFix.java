@@ -2,7 +2,6 @@ package com.endersjourney.ejfixes;
 
 import com.infamous.dungeons_libraries.capabilities.builtinenchants.BuiltInEnchantments;
 import com.infamous.dungeons_libraries.capabilities.builtinenchants.BuiltInEnchantmentsHelper;
-import com.infamous.dungeons_libraries.items.gearconfig.ArmorGear;
 import com.infamous.dungeons_libraries.items.gearconfig.ArmorGearConfigRegistry;
 import fr.shoqapik.brokenitems.BrokenItemsEvents;
 import net.minecraft.ChatFormatting;
@@ -27,28 +26,32 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static com.endersjourney.ejfixes.DungeonsGearGearTypes.isDungeonsGearGear;
+
 /**
  * Three touch-ups for {@code dungeons_gear} innate enchantment tooltip
- * lines, all driven by {@link MigratedGearTag}:
+ * lines — armor or weapon alike — all driven by {@link MigratedGearTag}:
  * <ul>
- *     <li><b>Color</b> — Dungeons Libraries paints an ArmorGear piece's own
- *     innate enchantment lines in orange itself
- *     ({@code DescriptionHelper.onItemTooltip}). A migrated piece (e.g. a
- *     {@code netherite_helmet}) has no such line — its innate enchantment
- *     is just a normal, plainly-colored vanilla enchantment line, with
- *     nothing marking it as inherited. This always recolors it to match,
- *     regardless of whether the full set is currently worn.</li>
+ *     <li><b>Color</b> — Dungeons Libraries paints a piece's own innate
+ *     enchantment lines in orange itself
+ *     ({@code DescriptionHelper.onItemTooltip}), for any of its own gear
+ *     classes (armor or weapon). A migrated piece (e.g. a
+ *     {@code netherite_helmet} or {@code netherite_sword}) has no such
+ *     line — its innate enchantment is just a normal, plainly-colored
+ *     vanilla enchantment line, with nothing marking it as inherited. This
+ *     always recolors it to match, regardless of whether any set bonus
+ *     applies.</li>
  *     <li><b>Description</b> — a migrated piece's enchantment is real
  *     vanilla NBT, so some other mod in the pack that reads
  *     {@code enchantment.<namespace>.<path>.desc} lang entries adds a
- *     description line under it. An ArmorGear piece's own innate line
- *     never gets this, since Dungeons Libraries' handler only adds the
- *     name. This adds the same description line to ArmorGear pieces too,
- *     whenever one isn't already present, so both styles show it
- *     consistently.</li>
- *     <li><b>Level</b> — neither Dungeons Libraries' own tooltip nor
- *     vanilla's generic enchantment line knows about
- *     {@code FullSetBonusMixin}'s +1 set bonus, since that's computed
+ *     description line under it. A piece that's still one of Dungeons
+ *     Gear's own gear classes never gets this, since Dungeons Libraries'
+ *     handler only adds the name. This adds the same description line to
+ *     those too, whenever one isn't already present, so every style shows
+ *     it consistently.</li>
+ *     <li><b>Level</b> — armor only. Neither Dungeons Libraries' own
+ *     tooltip nor vanilla's generic enchantment line knows about
+ *     {@code FullSetBonusMixin}'s +1 full-set bonus, since that's computed
  *     per-entity at effect-trigger time, not per-item at tooltip time. So
  *     both read e.g. "Life Steal Aura I" even while the full set is
  *     equipped and the real effective level is II. This shows the boosted
@@ -57,7 +60,8 @@ import java.util.Map;
  *     mirroring exactly the condition
  *     {@link com.endersjourney.ejfixes.mixin.FullSetBonusMixin} uses to
  *     grant the real bonus, so the tooltip and the actual effect never
- *     disagree.</li>
+ *     disagree. A weapon has no "set" to complete, so this never applies
+ *     to one.</li>
  * </ul>
  * Runs at LOW priority so it applies after both Dungeons Libraries' handler
  * and vanilla's own tooltip line have already run.
@@ -70,18 +74,17 @@ public class BuiltInEnchantmentTooltipFix {
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onItemTooltip(ItemTooltipEvent event) {
         ItemStack hovered = event.getItemStack();
-        boolean isArmorGear = hovered.getItem() instanceof ArmorGear;
-        ResourceLocation armorSet = MigratedGearTag.getEffectiveArmorSet(hovered);
-        if (armorSet == null) {
-            return;
-        }
+        boolean isOriginalGear = isDungeonsGearGear(hovered.getItem());
 
         List<EnchantmentInstance> innate = getInnateEnchantments(hovered);
         if (innate.isEmpty()) {
             return;
         }
 
-        boolean fullSetBonus = isWearingAsPartOfCompleteUnbrokenMatchingSet(event.getEntity(), hovered, armorSet);
+        ResourceLocation armorSet = MigratedGearTag.getEffectiveArmorSet(hovered);
+        boolean fullSetBonus = armorSet != null
+                && isWearingAsPartOfCompleteUnbrokenMatchingSet(event.getEntity(), hovered, armorSet);
+
         List<Component> tooltip = event.getToolTip();
 
         for (EnchantmentInstance instance : innate) {
@@ -92,7 +95,7 @@ public class BuiltInEnchantmentTooltipFix {
             // Color + level: only needs rewriting for a migrated piece
             // (always, to recolor) or when the level actually changed.
             int nameLineIndex = -1;
-            if (!isArmorGear || displayLevel != instance.level) {
+            if (!isOriginalGear || displayLevel != instance.level) {
                 String originalText = instance.enchantment.getFullname(instance.level).getString();
                 Component replacement = instance.enchantment.getFullname(displayLevel).copy()
                         .withStyle(Style.EMPTY.withColor(INNATE_COLOR));
@@ -128,12 +131,12 @@ public class BuiltInEnchantmentTooltipFix {
         }
     }
 
-    /** The piece's own innate enchantments — from the capability if it's
-     * still Dungeons Gear armor, or from its real NBT filtered down to the
-     * ones {@link MigratedGearTag} recorded as inherited, if it was
-     * migrated. */
+    /** The piece's own innate enchantments — armor or weapon — from the
+     * capability if it's still one of Dungeons Gear's own gear classes, or
+     * from its real NBT filtered down to the ones {@link MigratedGearTag}
+     * recorded as inherited, if it was migrated. */
     private static List<EnchantmentInstance> getInnateEnchantments(ItemStack stack) {
-        if (stack.getItem() instanceof ArmorGear) {
+        if (isDungeonsGearGear(stack.getItem())) {
             BuiltInEnchantments capability = BuiltInEnchantmentsHelper.getBuiltInEnchantmentsCapability(stack);
             return capability.getBuiltInEnchantments(ArmorGearConfigRegistry.GEAR_CONFIG_BUILTIN_RESOURCELOCATION);
         }
