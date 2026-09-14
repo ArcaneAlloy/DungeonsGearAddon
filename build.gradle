@@ -19,7 +19,10 @@ group = mod_group_id
 
 sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = '17'
 
-archivesBaseName = mod_id
+// Jar filename only — kept independent from mod_id (the internal Forge
+// modid, and therefore the mixins.json/refmap filenames, stay "ej_fixes"
+// unchanged) so this rename touches nothing else.
+archivesBaseName = 'dungeons_gear_addon'
 
 println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
 
