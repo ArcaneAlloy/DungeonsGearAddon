@@ -7,7 +7,11 @@
   "mixins": [
     "BuiltInEnchantmentsMixin",
     "FullSetBonusMixin",
-    "BlacksmithUpgradeEnchantMigrationMixin"
+    "BlacksmithUpgradeEnchantMigrationMixin",
+    "AttackContextMixin",
+    "DefenseContextMixin",
+    "WeaponDamageGateMixin",
+    "ArmorDamageGateMixin"
   ],
   "client": [],
   "server": [],

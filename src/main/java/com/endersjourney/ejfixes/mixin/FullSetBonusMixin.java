@@ -1,12 +1,15 @@
 package com.endersjourney.ejfixes.mixin;
 
+import com.endersjourney.ejfixes.EyeGateResolver;
 import com.endersjourney.ejfixes.MigratedGearTag;
 import com.infamous.dungeons_libraries.capabilities.builtinenchants.BuiltInEnchantments;
 import com.infamous.dungeons_libraries.capabilities.builtinenchants.BuiltInEnchantmentsHelper;
 import fr.shoqapik.brokenitems.BrokenItemsEvents;
+import mc.duzo.ender_journey.capabilities.PortalPlayer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
@@ -78,6 +81,16 @@ import static com.endersjourney.ejfixes.DungeonsGearGearTypes.isDungeonsGearGear
  * itself enough — if the enchantment on them only got there via manual
  * table/anvil enchanting rather than being genuinely innate/inherited, no
  * bonus is granted for it.
+ * <p>
+ * Fix 7 — Eye Gate (all enchantments, not just {@code dungeons_gear}): once
+ * the level above is settled (base, or base+1 for a full innate set), it's
+ * capped to whatever the wearer's Ender Eye count allows for that exact
+ * (enchantment, level) via {@link EyeGateResolver}. This runs for every
+ * enchantment on every entity, so a piece found with e.g. Protection III
+ * while the player only has enough eyes for Protection II is reported at
+ * II while equipped — the item's own NBT and tooltip are never touched,
+ * only the level this method reports back. Creative/spectator players and
+ * curses are exempt.
  */
 @Mixin(EnchantmentHelper.class)
 public abstract class FullSetBonusMixin {
@@ -89,10 +102,40 @@ public abstract class FullSetBonusMixin {
     )
     private static void ejFixes$recomputeBuiltInLevel(Enchantment enchantment, LivingEntity entity, CallbackInfoReturnable<Integer> cir) {
         ResourceLocation enchantId = ForgeRegistries.ENCHANTMENTS.getKey(enchantment);
-        if (enchantId == null || !enchantId.getNamespace().equals("dungeons_gear")) {
-            return;
+        boolean isDungeonsGear = enchantId != null && enchantId.getNamespace().equals("dungeons_gear");
+
+        int currentLevel;
+        if (isDungeonsGear) {
+            currentLevel = ejFixes$recomputeDungeonsGearLevel(enchantment, entity, cir);
+            if (currentLevel < 0) {
+                return; // already handled (baseLevel <= 0 case set the return value itself)
+            }
+        } else {
+            currentLevel = cir.getReturnValue();
         }
 
+        // Fix 7 — Eye Gate, see class javadoc.
+        int finalLevel = currentLevel;
+        if (currentLevel > 0 && entity instanceof Player player
+                && !player.getAbilities().instabuild
+                && !EyeGateResolver.isExempt(enchantment)) {
+            int eyesEarned = PortalPlayer.get(player)
+                    .map(PortalPlayer::getEyesEarn)
+                    .orElse(24); // capability missing on this entity → don't restrict
+            finalLevel = EyeGateResolver.effectiveLevel(enchantment, currentLevel, eyesEarned);
+        }
+
+        if (finalLevel != cir.getReturnValue()) {
+            cir.setReturnValue(finalLevel);
+        }
+    }
+
+    /**
+     * The original dungeons_gear-specific computation (base level +
+     * full-set bonus), unchanged. Returns the computed level, or -1 if it
+     * already fully handled the callback itself (the baseLevel &lt;= 0 case).
+     */
+    private static int ejFixes$recomputeDungeonsGearLevel(Enchantment enchantment, LivingEntity entity, CallbackInfoReturnable<Integer> cir) {
         Map<EquipmentSlot, ItemStack> slotItems = enchantment.getSlotItems(entity);
         boolean isArmorSlotSet = isArmorSlots(slotItems);
 
@@ -139,11 +182,11 @@ public abstract class FullSetBonusMixin {
 
         if (baseLevel <= 0) {
             cir.setReturnValue(0);
-            return;
+            return -1;
         }
 
         int result = (completeMatchingSet && innateOnAnyPiece) ? baseLevel + 1 : baseLevel; // Fix 2
-        cir.setReturnValue(Math.min(result, enchantment.getMaxLevel()));
+        return Math.min(result, enchantment.getMaxLevel());
     }
 
     /** The full-set bonus only makes sense for an enchantment whose

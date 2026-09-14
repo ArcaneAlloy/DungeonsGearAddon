@@ -1,0 +1,4 @@
+{
+  "ejfixes.eyegate.tooltip.in_use": "En uso: %1$s (%2$s ojos para el nivel completo, tienes %3$s)",
+  "ejfixes.eyegate.tooltip.locked": "Bloqueado \u2014 necesitas %1$s Ender Eyes (tienes %2$s)"
+}

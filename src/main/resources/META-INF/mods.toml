@@ -53,9 +53,19 @@ description='''${mod_description}'''
     side="BOTH"
 
 # BlacksmithUpgradeEnchantMigrationMixin targets BeyondTheEndMobs' own
-# BlacksmithUpgradeRecipe class directly.
+# BlacksmithUpgradeRecipe class directly. EyeGateResolver also reads its
+# WarlockRecipe.needEyes data (Fix 7).
 [[dependencies.${mod_id}]]
     modId="bte_mobs"
+    mandatory=true
+    versionRange="[1.0,)"
+    ordering="AFTER"
+    side="BOTH"
+
+# Fix 7 (FullSetBonusMixin's Eye Gate step) reads the player's Ender Eye
+# count from ender_journey's PortalPlayer capability directly.
+[[dependencies.${mod_id}]]
+    modId="ender_journey"
     mandatory=true
     versionRange="[1.0,)"
     ordering="AFTER"
