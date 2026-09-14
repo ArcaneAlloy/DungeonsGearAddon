@@ -197,29 +197,38 @@ Se incluye un ejemplo funcional en
 (`battle_robes_helmet` → `iron_helmet`, conservando Reckless I). Dime qué
 otras armaduras/piezas quieres mapear y te añado el JSON correspondiente.
 
-## Fix #5 — Tooltip muestra el nivel real con el set completo puesto
+## Fix #5 — Tooltip: color naranja siempre, nivel real con el set completo
 
-**Problema:** el texto naranja de cada encantamiento innato ("Life Steal
-Aura I") lo pinta Dungeons Libraries con su propio listener de
-`ItemTooltipEvent` (`DescriptionHelper.onItemTooltip`), que siempre usa el
-nivel estático configurado en el `gearconfig` del item — no tiene ni idea
-del bonus de set de `FullSetBonusMixin`, que se calcula por entidad en el
-momento en que se dispara el efecto, no por item al pintar el tooltip. Así
-que el tooltip decía "I" aunque el efecto real ya estuviera aplicando "II"
-con el set completo puesto.
+**Problema 1 (color):** una pieza `ArmorGear` normal muestra su
+encantamiento innato en naranja porque Dungeons Libraries lo pinta así
+(`DescriptionHelper.onItemTooltip`). Una pieza migrada (fix #4) ya no pasa
+por ese código — su línea de encantamiento la pinta el renderer genérico de
+Minecraft, con el color plano de siempre, sin nada que indique que es un
+encantamiento heredado/innato.
+
+**Problema 2 (nivel):** ni el listener de Dungeons Libraries ni el
+renderer genérico de Minecraft saben nada del bonus de
+`FullSetBonusMixin`, que se calcula por entidad en el momento en que se
+dispara el efecto, no por item al pintar el tooltip. Así que el tooltip
+decía "I" aunque el efecto real ya estuviera aplicando "II" con el set
+completo puesto.
 
 **Fix:** `BuiltInEnchantmentTooltipFix` es un listener normal de Forge (sin
 Mixin, sin problemas de SRG) que escucha el mismo `ItemTooltipEvent` con
 prioridad `LOW` — Dungeons Libraries usa la prioridad `NORMAL` por defecto,
-así que el nuestro corre después, cuando la línea "I" ya existe. Si:
+así que el nuestro corre después, cuando la línea original ya existe.
+Separa los dos problemas:
 
-- la pieza bajo el cursor es exactamente la que el jugador tiene equipada
-  (no una copia suelta en el inventario),
-- y ese jugador lleva las 4 piezas del mismo set, ninguna rota,
-
-sustituye cada línea de encantamiento innato por la versión con el nivel
-subido (mismo tope de `getMaxLevel()` que usa el propio bonus real), para
-que el tooltip nunca contradiga al efecto real.
+- **Color:** si la pieza es migrada (no `ArmorGear`), sus líneas de
+  encantamiento innato se repintan de naranja **siempre**, tengas el set
+  completo o no — es solo una cuestión de identidad visual del item. Una
+  pieza `ArmorGear` normal no se toca aquí porque ya sale naranja de fábrica.
+- **Nivel:** solo si la pieza bajo el cursor es exactamente la que el
+  jugador tiene equipada (no una copia suelta en el inventario) y ese
+  jugador lleva las 4 piezas del mismo set (rastreado vía
+  `MigratedGearTag`), ninguna rota, se sustituye el número por el nivel
+  subido (mismo tope de `getMaxLevel()` que usa el propio bonus real), para
+  que el tooltip nunca contradiga al efecto real.
 
 ## Fix #6 — El bonus de set sobrevive a piezas migradas (`MigratedGearTag`)
 

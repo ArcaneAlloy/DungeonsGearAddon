@@ -26,55 +26,43 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Dungeons Libraries paints each built-in ("innate") enchantment's tooltip
- * line itself, via a plain {@code ItemTooltipEvent} listener
- * ({@code DescriptionHelper.onItemTooltip}) that always uses the level
- * statically configured in the piece's gearconfig — it has no idea about
- * {@code FullSetBonusMixin}'s +1 set bonus, since that's computed
- * per-entity at effect-trigger time, not per-item at tooltip time. A
- * migrated piece's enchantment line is instead painted by vanilla's own
- * generic enchantment tooltip rendering, which is equally unaware. Either
- * way the tooltip reads e.g. "Life Steal Aura I" even while the full set is
- * equipped and the real effective level is II.
- * <p>
- * This listens to the same event at LOW priority (both Dungeons Libraries'
- * handler and vanilla's own line run at/before the default NORMAL priority,
- * so this runs after them, once the "I" line already exists) and, only
- * while the tooltip is being shown for a piece the viewing player actually
- * has equipped as part of a complete, unbroken, matching set — tracked via
- * {@link MigratedGearTag} so a migrated piece still counts — replaces each
- * innate enchantment's line with the boosted level. This mirrors exactly
- * the same condition {@link com.endersjourney.ejfixes.mixin.FullSetBonusMixin}
- * uses to grant the real bonus, so the tooltip and the actual effect never
- * disagree.
+ * Two independent tooltip touch-ups for {@code dungeons_gear} innate
+ * enchantments, both driven by {@link MigratedGearTag}:
+ * <ul>
+ *     <li><b>Color</b> — Dungeons Libraries paints an ArmorGear piece's own
+ *     innate enchantment lines in orange itself
+ *     ({@code DescriptionHelper.onItemTooltip}). A migrated piece (e.g. a
+ *     {@code netherite_helmet}) has no such line — its innate enchantment
+ *     is just a normal, plainly-colored vanilla enchantment line, with
+ *     nothing marking it as inherited. This always recolors it to match,
+ *     regardless of whether the full set is currently worn.</li>
+ *     <li><b>Level</b> — neither Dungeons Libraries' own tooltip nor
+ *     vanilla's generic enchantment line knows about
+ *     {@code FullSetBonusMixin}'s +1 set bonus, since that's computed
+ *     per-entity at effect-trigger time, not per-item at tooltip time. So
+ *     both read e.g. "Life Steal Aura I" even while the full set is
+ *     equipped and the real effective level is II. This shows the boosted
+ *     level instead, but only while the viewing player actually has this
+ *     exact stack equipped as part of a complete, unbroken, matching set —
+ *     mirroring exactly the condition
+ *     {@link com.endersjourney.ejfixes.mixin.FullSetBonusMixin} uses to
+ *     grant the real bonus, so the tooltip and the actual effect never
+ *     disagree.</li>
+ * </ul>
+ * Runs at LOW priority so it applies after both Dungeons Libraries' handler
+ * and vanilla's own tooltip line have already run.
  */
 @Mod.EventBusSubscriber(modid = EJFixes.MODID, value = Dist.CLIENT)
 public class BuiltInEnchantmentTooltipFix {
 
+    private static final TextColor INNATE_COLOR = TextColor.parseColor("#FF8100");
+
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onItemTooltip(ItemTooltipEvent event) {
         ItemStack hovered = event.getItemStack();
+        boolean isArmorGear = hovered.getItem() instanceof ArmorGear;
         ResourceLocation armorSet = MigratedGearTag.getEffectiveArmorSet(hovered);
         if (armorSet == null) {
-            return;
-        }
-
-        Player player = event.getEntity();
-        if (player == null) {
-            return;
-        }
-
-        // Only reflect the bonus while this exact stack is the one equipped
-        // by the player viewing the tooltip — not just any copy sitting in
-        // an inventory somewhere.
-        boolean equipped = false;
-        for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
-            if (player.getItemBySlot(slot) == hovered) {
-                equipped = true;
-                break;
-            }
-        }
-        if (!equipped || !isWearingCompleteUnbrokenMatchingSet(player, armorSet)) {
             return;
         }
 
@@ -83,18 +71,28 @@ public class BuiltInEnchantmentTooltipFix {
             return;
         }
 
+        boolean fullSetBonus = isWearingAsPartOfCompleteUnbrokenMatchingSet(event.getEntity(), hovered, armorSet);
+
+        // Migrated pieces need recoloring regardless of the set bonus;
+        // ArmorGear pieces are already orange courtesy of Dungeons
+        // Libraries' own tooltip handler, so skip them entirely unless
+        // there's also a level to bump.
+        if (isArmorGear && !fullSetBonus) {
+            return;
+        }
+
         List<Component> tooltip = event.getToolTip();
         for (EnchantmentInstance instance : innate) {
-            int boostedLevel = Math.min(instance.level + 1, instance.enchantment.getMaxLevel());
-            if (boostedLevel <= instance.level) {
-                continue;
-            }
+            int displayLevel = fullSetBonus
+                    ? Math.min(instance.level + 1, instance.enchantment.getMaxLevel())
+                    : instance.level;
+
             String originalText = instance.enchantment.getFullname(instance.level).getString();
-            Component boosted = instance.enchantment.getFullname(boostedLevel).copy()
-                    .withStyle(Style.EMPTY.withColor(TextColor.parseColor("#FF8100")));
+            Component replacement = instance.enchantment.getFullname(displayLevel).copy()
+                    .withStyle(Style.EMPTY.withColor(INNATE_COLOR));
             for (int i = 0; i < tooltip.size(); i++) {
                 if (tooltip.get(i).getString().equals(originalText)) {
-                    tooltip.set(i, boosted);
+                    tooltip.set(i, replacement);
                     break;
                 }
             }
@@ -119,7 +117,20 @@ public class BuiltInEnchantmentTooltipFix {
         return result;
     }
 
-    private static boolean isWearingCompleteUnbrokenMatchingSet(Player player, ResourceLocation armorSet) {
+    private static boolean isWearingAsPartOfCompleteUnbrokenMatchingSet(Player player, ItemStack hovered, ResourceLocation armorSet) {
+        if (player == null) {
+            return false;
+        }
+        boolean equipped = false;
+        for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+            if (player.getItemBySlot(slot) == hovered) {
+                equipped = true;
+                break;
+            }
+        }
+        if (!equipped) {
+            return false;
+        }
         for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
             ItemStack piece = player.getItemBySlot(slot);
             if (BrokenItemsEvents.isItemBroken(piece)) {
